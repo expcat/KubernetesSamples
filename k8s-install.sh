@@ -236,6 +236,7 @@ init_master(){
         mkdir -p $HOME/.kube
         sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
         sudo chown $(id -u):$(id -g) $HOME/.kube/config
+        kubectl taint nodes --all node-role.kubernetes.io/master-
         echo -e "${Info} Master 初始化成功。"
     else
         echo -e "${Info} Master 已存在，执行下一步。"
