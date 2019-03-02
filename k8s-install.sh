@@ -229,14 +229,14 @@ EOF
 }
 
 init_master(){
-    has_master=$(kubectl get node | grep master | awk '{print $3}')
-    if [ ${has_master} != "master" ]; then
+    kubectl get node > $show_msg
+    if [ $? -ne 0 ]; then
         echo -e "${Info} Master 初始化中..."
         kubeadm init \
             --image-repository registry.aliyuncs.com/google_containers \
             --pod-network-cidr=${network_cidr} \
             --ignore-preflight-errors=cri \
-            --kubernetes-version=${kube_ver}
+            --kubernetes-version=${kube_ver} > $show_msg
         if [ $? -ne 0 ]; then
             echo -e "${Error} kubeadm init 失败。"
             exit 1
@@ -252,8 +252,8 @@ init_master(){
 
 init_network(){
     echo -e "${Info} 初始化 Kubernets 网络插件..."
-    kubectl apply -f https://docs.projectcalico.org/v${calico_ver}/getting-started/kubernetes/installation/hosted/etcd.yaml
-    kubectl apply -f https://docs.projectcalico.org/v${calico_ver}/getting-started/kubernetes/installation/hosted/calico.yaml
+    kubectl apply -f https://docs.projectcalico.org/v${calico_ver}/getting-started/kubernetes/installation/hosted/etcd.yaml > $show_msg
+    kubectl apply -f https://docs.projectcalico.org/v${calico_ver}/getting-started/kubernetes/installation/hosted/calico.yaml > $show_msg
     echo -e "${Info} 初始化 Kubernets 网络插件成功。"
 }
 
