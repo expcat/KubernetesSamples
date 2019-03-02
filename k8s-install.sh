@@ -147,6 +147,8 @@ check_setting(){
 }
 # 修改设置
 change_setting(){
+    systemctl stop firewalld > $show_msg
+    systemctl disable firewalld > $show_msg
     cat > /etc/sysctl.d/k8s.conf <<EOF
 net.bridge.bridge-nf-call-ip6tables = 1
 net.bridge.bridge-nf-call-iptables = 1
@@ -183,23 +185,11 @@ Install_Cluster(){
     install_type="cluster"
     Install_DC
     echo && read -e -p "Master IP:Port ?：" m_ip
-    if [[ -e ${m_ip} ]]; then
-        master_ip="${m_ip}"
-    else
-        echo -e "${Error} 请输入 Master IP:Port" && exit 1
-    fi
+    master_ip="${m_ip}"
     echo && read -e -p "Init Token ?：" m_token
-    if [[ -e ${m_token} ]]; then
-        init_token="${m_token}"
-    else
-        echo -e "${Error} 请输入 Init Token" && exit 1
-    fi
+    init_token="${m_token}"
     echo && read -e -p "Init Hash ?：" m_hash
-    if [[ -e ${m_hash} ]]; then
-        init_hash="${m_hash}"
-    else
-        echo -e "${Error} 请输入 Init Hash" && exit 1
-    fi
+    init_hash="${m_hash}"
 }
 Install_DC(){
     echo && read -e -p "是否安装 docker-compose ?[y/N]：" ins_dc
@@ -212,6 +202,7 @@ check_kube3(){
     if [ -e ${kubelet_folder} ] && [ -e ${kubeadm_folder} ] && [ -e ${kubectl_folder} ]; then
         echo -e "${Info} kubelet kubeadm kubectl 已安装，执行下一步。"
     else
+        echo -e "${Info} kubelet kubeadm kubectl 开始安装..."
         cat > /etc/yum.repos.d/kubrenetes.repo << EOF
 [kubernetes]
 name=Kubernetes Repo
@@ -225,6 +216,7 @@ EOF
             exit 1
         fi
         systemctl enable kubelet && systemctl start kubelet
+        echo -e "${Info} kubelet kubeadm kubectl 安装成功。"
     fi
 }
 
@@ -268,7 +260,13 @@ init_network(){
 # }
 
 init_cluster(){
+    echo -e "${Info} Cluster 初始化中..."
     kubeadm join ${master_ip} --token ${init_token} --discovery-token-ca-cert-hash ${init_hash}
+    if [ $? -ne 0 ]; then
+        echo -e "${Error} Cluster 初始化失败。"
+        exit 1
+    fi
+    echo -e "${Info} Cluster 初始化完成。"
 }
 
 init_config(){    
