@@ -19,6 +19,7 @@ docker_folder="/usr/bin/docker"
 show_msg="/dev/null"
 
 install_type="master"
+is_taint="n"
 is_install_dc="n"
 master_ip=""
 init_token=""
@@ -27,6 +28,8 @@ init_hash=""
 kubeadm_folder="/usr/bin/kubeadm"
 kubelet_folder="/usr/bin/kubelet"
 kubectl_folder="/usr/bin/kubectl"
+
+helm_folder="/usr/local/bin/helm"
 
 network_cidr="192.168.0.0/16"
 
@@ -171,6 +174,10 @@ EOF
 
 Install_Master(){
     install_type="master"
+    echo && read -e -p "是否祛除 Master 污点 ?[Y/n]：" clear_taint
+    if [[ ${clear_taint} == [Nn] ]]; then
+        is_taint="y"
+    fi
     Install_DC
     Init_Cidr
 }
@@ -236,7 +243,13 @@ init_master(){
         mkdir -p $HOME/.kube
         sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
         sudo chown $(id -u):$(id -g) $HOME/.kube/config
-        kubectl taint nodes --all node-role.kubernetes.io/master-
+        if [[ ${is_taint} == "n" ]]; then
+        # 去掉 Master 污点
+            kubectl taint nodes --all node-role.kubernetes.io/master-
+        fi
+        # kubectl bash 自动补全功能
+        source /usr/share/bash-completion/bash_completion
+        source <(kubectl completion bash)
         echo -e "${Info} Master 初始化成功。"
     else
         echo -e "${Info} Master 已存在，执行下一步。"
@@ -251,24 +264,47 @@ init_network(){
 }
 
 # init_helm(){
-#     echo -e "${Info} 初始化 Helm 。"
-#     curl https://raw.githubusercontent.com/helm/helm/master/scripts/get | bash
-#     helm init --upgrade --tiller-image registry.cn-hangzhou.aliyuncs.com/google_containers/tiller:v${tiller_ver} --stable-repo-url https://kubernetes.oss-cn-hangzhou.aliyuncs.com/charts
-#     helm repo update
-#     kubectl create serviceaccount --namespace kube-system tiller
-#     kubectl create clusterrolebinding tiller-cluster-rule --clusterrole=cluster-admin --serviceaccount=kube-system:tiller
-#     kubectl patch deploy --namespace kube-system tiller-deploy -p '{"spec":{"template":{"spec":{"serviceAccount":"tiller"}}}}'
+#     if [ -e ${helm_folder} ]; then
+#         echo -e "${Info} Helm 已存在，执行下一步。"
+#     else
+#         echo -e "${Info} 初始化 Helm ..."
+#         # curl https://raw.githubusercontent.com/helm/helm/master/scripts/get | bash
+#         curl -o helm-v${tiller_ver}-linux-amd64.tar.gz https://storage.googleapis.com/kubernetes-helm/helm-v${tiller_ver}-linux-amd64.tar.gz > $show_msg
+#         if [ $? -ne 0 ]; then
+#             echo -e "${Error} Helm 初始化失败。"
+#             exit 1
+#         fi
+#         tar -xvf helm-v${tiller_ver}-linux-amd64.tar.gz
+#         mv linux-amd64/helm ${helm_folder}
+#         echo -e "${Info} 初始化 Helm 成功。"
+#     fi
+#     kubectl get deploy --namespace kube-system tiller-deploy > $show_msg
+#     if [ $? -ne 0 ]; then
+#         echo -e "${Info} 初始化 Tiller ..."
+#         helm init --upgrade --tiller-image registry.cn-hangzhou.aliyuncs.com/google_containers/tiller:v${tiller_ver} --stable-repo-url https://kubernetes.oss-cn-hangzhou.aliyuncs.com/charts > $show_msg
+#         if [ $? -ne 0 ]; then
+#             echo -e "${Error} Tiller 初始化失败。"
+#             exit 1
+#         fi
+#         helm repo update > $show_msg
+#         kubectl create serviceaccount --namespace kube-system tiller > $show_msg
+#         kubectl create clusterrolebinding tiller-cluster-rule --clusterrole=cluster-admin --serviceaccount=kube-system:tiller > $show_msg
+#         kubectl patch deploy --namespace kube-system tiller-deploy -p '{"spec":{"template":{"spec":{"serviceAccount":"tiller"}}}}' > $show_msg
+#         echo -e "${Info} 初始化 Tiller 成功。"
+#     else
+#         echo -e "${Info} Tiller 已存在，执行下一步。"
+#     fi
 # }
 
-init_cluster(){
-    echo -e "${Info} Cluster 初始化中..."
-    kubeadm join ${master_ip} --token ${init_token} --discovery-token-ca-cert-hash ${init_hash}
-    if [ $? -ne 0 ]; then
-        echo -e "${Error} Cluster 初始化失败。"
-        exit 1
-    fi
-    echo -e "${Info} Cluster 初始化完成。"
-}
+# init_cluster(){
+#     echo -e "${Info} Cluster 初始化中..."
+#     kubeadm join ${master_ip} --token ${init_token} --discovery-token-ca-cert-hash ${init_hash}
+#     if [ $? -ne 0 ]; then
+#         echo -e "${Error} Cluster 初始化失败。"
+#         exit 1
+#     fi
+#     echo -e "${Info} Cluster 初始化完成。"
+# }
 
 init_config(){    
     check_root    
@@ -310,5 +346,6 @@ if [ ${install_type} == "master" ]; then
     init_network
     # init_helm
 elif [ ${install_type} == "cluster" ]; then
-    init_cluster
+    #init_cluster
+    echo -e "${Info} Cluster 依赖已安装完成，请执行 Master 初始化后生成的 kubeadm join <master_ip:port> --token <token> --discovery-token-ca-cert-hash <hash> 命令。"
 fi
