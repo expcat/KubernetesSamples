@@ -276,6 +276,7 @@ init_network(){
 #         fi
 #         tar -xvf helm-v${tiller_ver}-linux-amd64.tar.gz
 #         mv linux-amd64/helm ${helm_folder}
+#         source <(helm completion bash)
 #         echo -e "${Info} 初始化 Helm 成功。"
 #     fi
 #     kubectl get deploy --namespace kube-system tiller-deploy > $show_msg
