@@ -363,7 +363,7 @@ check_setting
 check_kube3
 if [ ${install_type} == "master" ]; then
     install_master
-    install_network
+    # install_network
     # init_helm
 elif [ ${install_type} == "cluster" ]; then
     # cluster
