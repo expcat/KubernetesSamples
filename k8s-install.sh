@@ -16,7 +16,7 @@ Tip="${Green_font_prefix}[注意]${Font_color_suffix}"
 host_name="$HOSTNAME"
 
 docker_folder="/usr/bin/docker"
-show_msg="/dev/null"
+show_msg="/dev/tty"
 
 install_type="master"
 is_taint="n"
@@ -36,6 +36,14 @@ network_cidr="192.168.0.0/16"
 # 检查是否为root用户
 check_root(){
     [[ $EUID != 0 ]] && echo -e "${Error} 当前账号非ROOT(或没有ROOT权限)，无法继续操作，请使用${Green_background_prefix} sudo su ${Font_color_suffix}来获取临时ROOT权限（执行后会提示输入当前账号的密码）。" && exit 1
+    check_hostname
+}
+
+check_hostname(){
+    hn=`hostname | gawk '/[_]+/{print $0}'`
+    if [ -n "${hn}" ]; then
+        echo "hostname 中含有字符'_'，请使用命令 sudo hostnamectl set-hostname '新hostname' 修改。" && exit 1
+    fi
 }
 
 # 检查是否已安装docker
@@ -61,8 +69,11 @@ install_docker(){
     echo -e "${Info} 依赖已安装完毕，开始配置 docker-ce 安装源.."
     config_install_source
     echo -e "${Info} docker-ce 安装源已配置完毕，开始安装..."
-    #yum makecache fast
     yum install -y docker-ce > $show_msg
+    if [ $? -ne 0 ]; then
+        echo -e "${Error} 安装 docker 失败。"
+        exit 1
+    fi
     echo -e "${Info} docker-ce 已安装完毕"
     mkdir -p /etc/docker
     tee /etc/docker/daemon.jso > $show_msg <<EOF
@@ -129,6 +140,11 @@ config_install_source(){
         echo -e "${Error} 配置安装源失败。"
         exit 1
     fi
+    yum makecache fast > $show_msg
+    if [ $? -ne 0 ]; then
+        echo -e "${Error} 配置安装源失败。"
+        exit 1
+    fi
 }
 
 # 修改设置
@@ -160,6 +176,7 @@ net.ipv4.ip_forward = 1
 vm.swappiness=0
 EOF
     sysctl --system > $show_msg
+    sysctl -p /etc/sysctl.d/k8s.conf > $show_msg
     cat > /etc/sysconfig/modules/ipvs.modules <<EOF
 #!/bin/bash
 modprobe -- ip_vs
@@ -172,34 +189,34 @@ EOF
     echo -e "${Info} centos 配置已修改"
 }
 
-Install_Master(){
+init_master_config(){
     install_type="master"
-    echo && read -e -p "是否祛除 Master 污点 ?[Y/n]：" clear_taint
+    read -e -p "是否祛除 Master 污点 ?[Y/n]：" clear_taint
     if [[ ${clear_taint} == [Nn] ]]; then
         is_taint="y"
     fi
-    Install_DC
-    Init_Cidr
+    init_docker_compose_config
+    init_cidr
 }
-Init_Cidr(){
-    echo && read -e -p "Network Cidr ?[默认:192.168.0.0/16]：" cidr
+init_cidr(){
+    read -e -p "Network Cidr ?[默认:192.168.0.0/16]：" cidr
     if [[ -e ${cidr} ]]; then
         network_cidr="${cidr}"
     fi
 }
 
-Install_Cluster(){
+init_cluster(){
     install_type="cluster"
-    Install_DC
-    echo && read -e -p "Master IP:Port ?：" m_ip
-    master_ip="${m_ip}"
-    echo && read -e -p "Init Token ?：" m_token
-    init_token="${m_token}"
-    echo && read -e -p "Init Hash ?：" m_hash
-    init_hash="${m_hash}"
+    init_docker_compose_config
+    # echo && read -e -p "Master IP:Port ?：" m_ip
+    # master_ip="${m_ip}"
+    # echo && read -e -p "Init Token ?：" m_token
+    # init_token="${m_token}"
+    # echo && read -e -p "Init Hash ?：" m_hash
+    # init_hash="${m_hash}"
 }
-Install_DC(){
-    echo && read -e -p "是否安装 docker-compose ?[y/N]：" ins_dc
+init_docker_compose_config(){
+    read -e -p "是否安装 docker-compose ?[y/N]：" ins_dc
     if [[ ${ins_dc} == [Yy] ]]; then
         is_install_dc="y"
     fi
@@ -217,7 +234,7 @@ baseurl=https://mirrors.aliyun.com/kubernetes/yum/repos/kubernetes-el7-x86_64/
 gpgcheck=0
 gpgkey=https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg
 EOF
-        yum install -y kubelet kubeadm kubectl
+        yum install -y kubelet kubeadm kubectl > $show_msg
         if [ $? -ne 0 ]; then
             echo -e "${Error} kubelet kubeadm kubectl 安装失败。"
             exit 1
@@ -227,7 +244,7 @@ EOF
     fi
 }
 
-init_master(){
+install_master(){
     kubectl get node > $show_msg
     if [ $? -ne 0 ]; then
         echo -e "${Info} Master 初始化中..."
@@ -235,17 +252,17 @@ init_master(){
             --image-repository registry.aliyuncs.com/google_containers \
             --pod-network-cidr=${network_cidr} \
             --ignore-preflight-errors=cri \
-            --kubernetes-version=${kube_ver} > $show_msg
+            --kubernetes-version=${kube_ver}
         if [ $? -ne 0 ]; then
             echo -e "${Error} kubeadm init 失败。"
             exit 1
         fi
-        mkdir -p $HOME/.kube
-        sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-        sudo chown $(id -u):$(id -g) $HOME/.kube/config
+        mkdir -p $HOME/.kube > $show_msg
+        sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config > $show_msg
+        sudo chown $(id -u):$(id -g) $HOME/.kube/config > $show_msg
         if [[ ${is_taint} == "n" ]]; then
         # 去掉 Master 污点
-            kubectl taint nodes --all node-role.kubernetes.io/master-
+            kubectl taint nodes --all node-role.kubernetes.io/master- > $show_msg
         fi
         # kubectl bash 自动补全功能
         source /usr/share/bash-completion/bash_completion
@@ -256,13 +273,14 @@ init_master(){
     fi
 }
 
-init_network(){
+install_network(){
     echo -e "${Info} 初始化 Kubernets 网络插件..."
     kubectl apply -f https://docs.projectcalico.org/v${calico_ver}/getting-started/kubernetes/installation/hosted/etcd.yaml > $show_msg
     kubectl apply -f https://docs.projectcalico.org/v${calico_ver}/getting-started/kubernetes/installation/hosted/calico.yaml > $show_msg
     echo -e "${Info} 初始化 Kubernets 网络插件成功。"
 }
 
+# 因众所周知的网络问题，Helm需手动翻墙下载
 # init_helm(){
 #     if [ -e ${helm_folder} ]; then
 #         echo -e "${Info} Helm 已存在，执行下一步。"
@@ -297,7 +315,8 @@ init_network(){
 #     fi
 # }
 
-# init_cluster(){
+# 太复杂，不如直接复制 Master 命令执行
+# install_cluster(){
 #     echo -e "${Info} Cluster 初始化中..."
 #     kubeadm join ${master_ip} --token ${init_token} --discovery-token-ca-cert-hash ${init_hash}
 #     if [ $? -ne 0 ]; then
@@ -312,21 +331,21 @@ init_config(){
     echo -e "  请选择
         1. 安装为 Master
         2. 安装为 Cluster"
-    echo && read -e -p "[1-2]：" num
+    read -e -p "[1-2]：" num
     case "$num" in
         1)
-        Install_Master
+        init_master_config
         ;;
         2)
-        Install_Cluster
+        init_cluster
         ;;
         *)
         echo -e "${Error} 请输入正确的数字 [1-2]" && exit 1
         ;;
     esac
-    echo && read -e -p "是否显示安装信息 ?[y/N]：" is_show
-    if [[ ${is_show} == [Yy] ]]; then
-        show_msg="/dev/tty"
+    read -e -p "是否显示安装信息 ?[Y/n]：" is_show
+    if [[ ${is_show} == [Nn] ]]; then
+        show_msg="/dev/null"
     fi
 }
 
@@ -343,10 +362,11 @@ fi
 check_setting
 check_kube3
 if [ ${install_type} == "master" ]; then
-    init_master
-    init_network
+    install_master
+    install_network
     # init_helm
 elif [ ${install_type} == "cluster" ]; then
-    #init_cluster
+    # cluster
+    # install_cluster
     echo -e "${Info} Cluster 依赖已安装完成，请执行 Master 初始化后生成的 kubeadm join <master_ip:port> --token <token> --discovery-token-ca-cert-hash <hash> 命令。"
 fi
