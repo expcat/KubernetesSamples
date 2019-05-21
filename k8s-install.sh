@@ -76,7 +76,7 @@ install_docker(){
     fi
     echo -e "${Info} docker-ce 已安装完毕"
     mkdir -p /etc/docker
-    tee /etc/docker/daemon.jso > $show_msg <<EOF
+    tee /etc/docker/daemon.json > $show_msg <<EOF
 {
     "registry-mirrors": [
         "https://m0livmqr.mirror.aliyuncs.com",
